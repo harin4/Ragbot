@@ -2,7 +2,7 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Build tools + Playwright Chromium runtime libs (Debian Trixie t64 names)
+# System deps for Playwright Chromium (Debian Trixie t64 packages)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc g++ \
     libnss3 \
@@ -25,23 +25,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY backend/requirements.txt .
 RUN pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
 
-# Create the HF-required non-root user BEFORE installing browsers and the
-# model so everything lands in /home/user/.cache (accessible at runtime).
+# Install Chromium as root into a world-readable path so the non-root
+# user can find it at runtime without PLAYWRIGHT_BROWSERS_PATH games.
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+RUN python -m playwright install chromium \
+    && chmod -R 755 /ms-playwright
+
+# Create the HF-required non-root user
 RUN useradd -m -u 1000 user
 USER user
 ENV HOME=/home/user \
     PATH=/home/user/.local/bin:$PATH \
-    PLAYWRIGHT_BROWSERS_PATH=/home/user/.cache/ms-playwright
-
-# Install Playwright Chromium as the non-root user so the binary is in
-# /home/user/.cache/ms-playwright, where the running process can find it.
-RUN python -m playwright install chromium
-
-# Pre-download BAAI/bge-small-en-v1.5 (~130 MB) to avoid cold-start delay.
-RUN python -c "\
-from sentence_transformers import SentenceTransformer; \
-SentenceTransformer('BAAI/bge-small-en-v1.5'); \
-print('BGE model cached.')"
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 COPY --chown=user:user backend/ .
 
