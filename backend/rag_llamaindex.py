@@ -198,8 +198,12 @@ def _rewrite_query(question: str, history: list[dict]) -> str:
     client = Groq(api_key=cfg.groq_api_key)
     history_text = ""
     if history:
-        recent = history[-6:]
-        history_text = "\n".join(f"{m['role'].upper()}: {m['content']}" for m in recent)
+        # Skip failed "not covered" assistant turns — they mislead the rewriter
+        useful = [
+            m for m in history[-6:]
+            if not (m["role"] == "assistant" and "isn't covered" in m.get("content", ""))
+        ]
+        history_text = "\n".join(f"{m['role'].upper()}: {m['content']}" for m in useful)
     system = (
         "You are a search query optimizer. "
         "Given the conversation history and the latest question, rewrite the question "
