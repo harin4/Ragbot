@@ -28,10 +28,10 @@ RUN python -m playwright install chromium \
 
 # Install the rest of the application requirements.
 COPY backend/requirements.txt .
-RUN pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -q -r requirements.txt
 
 # Create the HF-required non-root user (UID 1000).
-RUN useradd -m -u 1000 user
+RUN useradd --no-log-init -m -u 1000 user
 USER user
 ENV HOME=/home/user \
     PATH=/home/user/.local/bin:$PATH \
