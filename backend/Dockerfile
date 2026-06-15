@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc g++ && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
 
 # Pre-download BAAI/bge-small-en-v1.5 (~130 MB) so the container is
 # ready immediately — avoids a 40-second cold-start on first request.
