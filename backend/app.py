@@ -79,8 +79,19 @@ def api_collections() -> dict:
         return {}
 
 
+def api_sources(framework: str) -> list:
+    try:
+        return requests.get(f"{API_URL}/collections/{framework}/sources", timeout=10).json()
+    except Exception:
+        return []
+
+
 def api_delete(framework: str) -> None:
     requests.delete(f"{API_URL}/collections/{framework}", timeout=10)
+
+
+def api_delete_url(framework: str, collection_name: str) -> None:
+    requests.delete(f"{API_URL}/collections/{framework}/url/{collection_name}", timeout=10)
 
 
 def stream_chat(question: str, framework: str):
@@ -143,7 +154,7 @@ with st.sidebar:
     if ingest_mode == "🔗 Scrape URL":
         with st.form("ingest_form_url"):
             url_input = st.text_input("URL to scrape", placeholder="https://example.com/article")
-            st.caption("⚠️ Medium, Substack, NYT block scrapers — use Paste text for those.")
+            st.caption("Uses a real browser — most JS-rendered pages work. Paste text for paywalled sites.")
             submitted = st.form_submit_button("Process URL", use_container_width=True)
 
         if submitted and url_input:
@@ -204,11 +215,32 @@ with st.sidebar:
     st.subheader("📊 Knowledge Base")
     if st.button("Refresh stats", use_container_width=True):
         st.session_state["kb_stats"] = api_collections()
+        st.session_state["kb_sources_llamaindex"] = api_sources("llamaindex")
+        st.session_state["kb_sources_langchain"] = api_sources("langchain")
 
     stats = st.session_state.get("kb_stats", api_collections())
-    for name, count in stats.items():
-        label = "🦜 LangChain" if "langchain" in name else "🦙 LlamaIndex"
+    for fw, count in stats.items():
+        label = "🦜 LangChain" if fw == "langchain" else "🦙 LlamaIndex"
         st.metric(label=label, value=f"{count} chunks")
+
+    # Per-URL source list for the active framework
+    src_key = f"kb_sources_{framework}"
+    sources_list = st.session_state.get(src_key, api_sources(framework))
+    if sources_list:
+        st.caption(f"Ingested URLs ({framework}):")
+        for src in sources_list:
+            col_title, col_del = st.columns([4, 1])
+            with col_title:
+                st.markdown(
+                    f"[{src['title'][:40] or src['source']}]({src['source']}) "
+                    f"— {src['chunks']} chunks",
+                    help=src["source"],
+                )
+            with col_del:
+                if st.button("✕", key=f"del_{src['collection']}", help="Remove this URL"):
+                    api_delete_url(framework, src["collection"])
+                    st.session_state.pop(src_key, None)
+                    st.rerun()
 
     st.divider()
 

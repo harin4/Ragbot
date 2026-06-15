@@ -26,6 +26,7 @@ from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams
 
 from config import get_settings
+from collection_utils import framework_prefix
 
 cfg = get_settings()
 
@@ -84,34 +85,31 @@ def ingest_documents(
     texts: list[str],
     source_url: str,
     source_title: str,
+    collection_name: str,
 ) -> int:
     """
-    Split *texts* further with LangChain's RecursiveCharacterTextSplitter,
-    embed them, and upsert into Qdrant.
+    Split *texts* with LangChain's RecursiveCharacterTextSplitter, embed them,
+    and upsert into a per-URL Qdrant collection.
 
     Returns the number of chunks stored.
     """
-    _ensure_collection(cfg.qdrant_collection_langchain)
+    _ensure_collection(collection_name)
 
-    # LangChain-style: wrap raw strings in Document objects so we can attach metadata
     raw_docs = [
         Document(page_content=t, metadata={"source": source_url, "title": source_title})
         for t in texts
     ]
 
-    # RecursiveCharacterTextSplitter is smarter than naive word-splitting:
-    # it tries to split on paragraphs → sentences → words in that order.
     splitter = RecursiveCharacterTextSplitter(
-        chunk_size=cfg.chunk_size * 4,  # characters ≈ words × 4
+        chunk_size=cfg.chunk_size * 4,
         chunk_overlap=cfg.chunk_overlap * 4,
         separators=["\n\n", "\n", ". ", " ", ""],
     )
     docs = splitter.split_documents(raw_docs)
 
-    # Use pre-created collection so vector dimensions are always correct (1024-dim Cohere)
     vectorstore = QdrantVectorStore(
         client=_get_qdrant(),
-        collection_name=cfg.qdrant_collection_langchain,
+        collection_name=collection_name,
         embedding=_get_embeddings(),
     )
     vectorstore.add_documents(docs)
@@ -121,28 +119,37 @@ def ingest_documents(
 # ── Retrieval + Rerank ──────────────────────────────────────────────────────
 
 def _retrieve_and_rerank(query: str) -> list[Document]:
-    """Vector search → Cohere rerank → top-k docs."""
-    vectorstore = QdrantVectorStore(
-        client=_get_qdrant(),
-        collection_name=cfg.qdrant_collection_langchain,
-        embedding=_get_embeddings(),
-    )
-    # Retrieve wider candidate set first
-    candidates: list[Document] = vectorstore.similarity_search(query, k=cfg.top_k_retrieve)
+    """Vector search across all per-URL collections → Cohere rerank → top-k docs."""
+    client = _get_qdrant()
+    prefix = framework_prefix("langchain")
+    collections = [c.name for c in client.get_collections().collections if c.name.startswith(prefix)]
 
-    if not candidates:
+    if not collections:
         return []
 
-    # Cohere rerank narrows candidates to the most relevant chunks
+    all_candidates: list[Document] = []
+    for cname in collections:
+        try:
+            vectorstore = QdrantVectorStore(
+                client=client,
+                collection_name=cname,
+                embedding=_get_embeddings(),
+            )
+            all_candidates.extend(vectorstore.similarity_search(query, k=cfg.top_k_retrieve))
+        except Exception:
+            continue
+
+    if not all_candidates:
+        return []
+
     co = _get_cohere()
     response = co.rerank(
         model=cfg.rerank_model,
         query=query,
-        documents=[d.page_content for d in candidates],
+        documents=[d.page_content for d in all_candidates],
         top_n=cfg.top_k_rerank,
     )
-    reranked = [candidates[r.index] for r in response.results]
-    return reranked
+    return [all_candidates[r.index] for r in response.results]
 
 
 # ── Question rewriting ──────────────────────────────────────────────────────

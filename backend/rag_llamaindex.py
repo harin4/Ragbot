@@ -43,6 +43,7 @@ from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams
 
 from config import get_settings
+from collection_utils import framework_prefix
 
 cfg = get_settings()
 
@@ -105,18 +106,17 @@ def ingest_documents(
     texts: list[str],
     source_url: str,
     source_title: str,
+    collection_name: str,
 ) -> int:
     """
     Convert *texts* to LlamaIndex Documents, parse into nodes with
-    SentenceSplitter, embed, and store in Qdrant.
+    SentenceSplitter, embed, and store in a per-URL Qdrant collection.
 
     Returns the number of nodes stored.
     """
     _configure_llamaindex()
-    _ensure_collection(cfg.qdrant_collection_llamaindex)
+    _ensure_collection(collection_name)
 
-    # LlamaIndex calls its document units "Documents" too, but they're slightly
-    # different from LangChain Documents – they carry an id_ and extra_info dict.
     documents = [
         Document(
             text=t,
@@ -125,22 +125,18 @@ def ingest_documents(
         for t in texts
     ]
 
-    # SentenceSplitter respects sentence boundaries; compare to LangChain's
-    # RecursiveCharacterTextSplitter which falls back through separators.
     parser = SentenceSplitter(
         chunk_size=cfg.chunk_size * 4,
         chunk_overlap=cfg.chunk_overlap * 4,
     )
     nodes = parser.get_nodes_from_documents(documents)
 
-    # QdrantVectorStore (LlamaIndex flavour) + StorageContext wires everything together
     vector_store = QdrantVectorStore(
         client=_get_qdrant(),
-        collection_name=cfg.qdrant_collection_llamaindex,
+        collection_name=collection_name,
     )
     storage_ctx = StorageContext.from_defaults(vector_store=vector_store)
 
-    # VectorStoreIndex.from_documents embeds nodes and stores them
     VectorStoreIndex(
         nodes=nodes,
         storage_context=storage_ctx,
@@ -152,43 +148,48 @@ def ingest_documents(
 # ── Retrieval + Rerank ──────────────────────────────────────────────────────
 
 def _retrieve_and_rerank(query: str) -> list[dict]:
-    """Retrieve candidates via LlamaIndex, rerank with Cohere."""
+    """Retrieve candidates across all per-URL collections, rerank with Cohere."""
     _configure_llamaindex()
 
-    vector_store = QdrantVectorStore(
-        client=_get_qdrant(),
-        collection_name=cfg.qdrant_collection_llamaindex,
-    )
-    storage_ctx = StorageContext.from_defaults(vector_store=vector_store)
-    index = VectorStoreIndex.from_vector_store(
-        vector_store=vector_store,
-        storage_context=storage_ctx,
-    )
+    client = _get_qdrant()
+    prefix = framework_prefix("llamaindex")
+    collections = [c.name for c in client.get_collections().collections if c.name.startswith(prefix)]
 
-    # LlamaIndex retriever – similarity_top_k is equivalent to LangChain's k
-    retriever = index.as_retriever(similarity_top_k=cfg.top_k_retrieve)
-    nodes = retriever.retrieve(query)
-
-    if not nodes:
+    if not collections:
         return []
 
-    # Cohere rerank (same as LangChain path – framework-agnostic step)
+    all_nodes = []
+    for cname in collections:
+        try:
+            vector_store = QdrantVectorStore(client=client, collection_name=cname)
+            storage_ctx = StorageContext.from_defaults(vector_store=vector_store)
+            index = VectorStoreIndex.from_vector_store(
+                vector_store=vector_store,
+                storage_context=storage_ctx,
+            )
+            retriever = index.as_retriever(similarity_top_k=cfg.top_k_retrieve)
+            all_nodes.extend(retriever.retrieve(query))
+        except Exception:
+            continue
+
+    if not all_nodes:
+        return []
+
     co = _get_cohere()
     response = co.rerank(
         model=cfg.rerank_model,
         query=query,
-        documents=[n.node.get_content() for n in nodes],
+        documents=[n.node.get_content() for n in all_nodes],
         top_n=cfg.top_k_rerank,
     )
-    reranked = [
+    return [
         {
-            "content": nodes[r.index].node.get_content(),
-            "source": nodes[r.index].node.metadata.get("source", ""),
-            "title": nodes[r.index].node.metadata.get("title", ""),
+            "content": all_nodes[r.index].node.get_content(),
+            "source": all_nodes[r.index].node.metadata.get("source", ""),
+            "title": all_nodes[r.index].node.metadata.get("title", ""),
         }
         for r in response.results
     ]
-    return reranked
 
 
 # ── Question rewriting ──────────────────────────────────────────────────────

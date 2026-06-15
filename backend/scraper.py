@@ -1,5 +1,5 @@
 """
-scraper.py – fetch and clean HTML from a URL.
+scraper.py – fetch and clean HTML from a URL using Playwright.
 Returns a list of plain-text chunks plus page metadata.
 """
 from __future__ import annotations
@@ -7,56 +7,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-import httpx
-from bs4 import BeautifulSoup
-
-
-_SKIP_TAGS = {
-    "script", "style", "noscript", "nav", "footer",
-    "header", "aside", "form", "button", "svg", "img",
-}
-
-# Full browser headers — mimics Chrome 124 on Windows
-_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/124.0.0.0 Safari/537.36"
-    ),
-    "Accept": (
-        "text/html,application/xhtml+xml,application/xml;"
-        "q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8"
-    ),
-    "Accept-Language": "en-US,en;q=0.9",
-    "Accept-Encoding": "gzip, deflate, br",
-    "Upgrade-Insecure-Requests": "1",
-    "Sec-Fetch-Dest": "document",
-    "Sec-Fetch-Mode": "navigate",
-    "Sec-Fetch-Site": "none",
-    "Sec-Fetch-User": "?1",
-    "Cache-Control": "max-age=0",
-}
-
-# Sites known to block all HTTP clients (need a real browser / JavaScript)
-_JS_ONLY_SITES = {
-    "medium.com",
-    "substack.com",
-    "bloomberg.com",
-    "ft.com",
-    "wsj.com",
-    "nytimes.com",
-}
-
-
-def _check_known_blocker(url: str) -> None:
-    """Raise a helpful error before attempting if the site is known to block scrapers."""
-    for domain in _JS_ONLY_SITES:
-        if domain in url:
-            raise ValueError(
-                f"{domain} blocks automated scrapers — it requires JavaScript to render. "
-                f"Use the 'Paste text' option in the sidebar instead, or try a different URL "
-                f"(Wikipedia, arXiv, GitHub README, official docs, etc.)."
-            )
+import trafilatura
+from playwright.async_api import async_playwright
 
 
 @dataclass
@@ -101,45 +53,32 @@ async def scrape_url(
     overlap: int = 50,
     timeout: float = 30.0,
 ) -> ScrapedPage:
-    """Fetch *url*, strip boilerplate, return a ScrapedPage with text chunks."""
-    _check_known_blocker(url)
+    """Fetch *url* with a real browser, strip boilerplate, return a ScrapedPage with text chunks."""
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        try:
+            page = await browser.new_page()
+            await page.goto(url, wait_until="networkidle", timeout=int(timeout * 1000))
 
-    async with httpx.AsyncClient(
-        follow_redirects=True,
-        timeout=timeout,
-        http2=True,
-    ) as client:
-        resp = await client.get(url, headers=_HEADERS)
+            title = await page.title() or url
+            html = await page.content()
 
-        # Retry without Sec-Fetch-* headers if first attempt is blocked
-        if resp.status_code == 403:
-            fallback = {k: v for k, v in _HEADERS.items() if not k.startswith("Sec-")}
-            resp = await client.get(url, headers=fallback)
-
-        if resp.status_code == 403:
-            raise ValueError(
-                f"403 Forbidden — {url} is blocking automated access. "
-                f"Use the 'Paste text' option in the sidebar, or try a publicly accessible URL."
+            extracted = trafilatura.extract(
+                html,
+                include_comments=False,
+                include_tables=True,
+                no_fallback=False,
             )
 
-        resp.raise_for_status()
+            if not extracted:
+                # Fall back to raw body text when trafilatura yields nothing
+                extracted = await page.evaluate("() => document.body.innerText")
+        finally:
+            await browser.close()
 
-    soup = BeautifulSoup(resp.text, "lxml")
+    clean = _clean_text(extracted or "")
+    if not clean:
+        raise ValueError(f"Could not extract any text content from {url}")
 
-    for tag in soup(list(_SKIP_TAGS)):
-        tag.decompose()
-
-    title = soup.title.get_text(strip=True) if soup.title else url
-
-    body = (
-        soup.find("article")
-        or soup.find("main")
-        or soup.find("body")
-        or soup
-    )
-
-    raw_text = body.get_text(separator="\n")
-    clean = _clean_text(raw_text)
     chunks = _split_into_chunks(clean, chunk_size, overlap)
-
     return ScrapedPage(url=url, title=title, text=clean, chunks=chunks)
