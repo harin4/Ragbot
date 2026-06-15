@@ -13,10 +13,7 @@ import streamlit as st
 # ── Config ──────────────────────────────────────────────────────────────────
 # In prod, set API_URL env var to the Railway backend URL.
 # Locally it defaults to http://localhost:8000.
-try:
-    API_URL = st.secrets.get("API_URL", os.getenv("API_URL", "http://localhost:8000"))
-except Exception:
-    API_URL = os.getenv("API_URL", "http://localhost:8000")
+API_URL = os.getenv("API_URL", "http://localhost:8000")
 
 st.set_page_config(
     page_title="RAG Chatbot",
