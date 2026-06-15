@@ -217,8 +217,9 @@ def _rewrite_query(question: str) -> str:
 
 # ── Chat (streaming) ────────────────────────────────────────────────────────
 
-_SYSTEM_PROMPT = """You are a helpful assistant. Answer the question using ONLY the context below.
-If the answer is not in the context, say "I don't have enough information to answer that."
+_SYSTEM_PROMPT = """You are a helpful assistant. Use the context below to answer the question.
+If the context contains relevant information, prioritize it and cite it.
+If the context does not cover the question, answer using your general knowledge and mention that the answer is not from the knowledge base.
 
 Context:
 {context}"""
