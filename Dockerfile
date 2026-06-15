@@ -2,27 +2,42 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# System deps: gcc/g++ for sentence-transformers; Playwright Chromium runtime libs
+# Build tools + Playwright Chromium runtime libs (Debian Trixie t64 names)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc g++ \
-    libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 \
-    libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 \
-    libgbm1 libasound2 libpango-1.0-0 libcairo2 libatspi2.0-0 \
+    libnss3 \
+    libatk1.0-0t64 \
+    libatk-bridge2.0-0t64 \
+    libcups2t64 \
+    libdrm2 \
+    libxkbcommon0 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxrandr2 \
+    libgbm1 \
+    libasound2t64 \
+    libpango-1.0-0 \
+    libcairo2 \
+    libatspi2.0-0t64 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY backend/requirements.txt .
 RUN pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
 
-# Download Playwright's Chromium browser binary
-RUN python -m playwright install chromium
-
-# Create the HF-required non-root user BEFORE caching the model so the
-# model lands in /home/user/.cache (the path the app sees at runtime).
+# Create the HF-required non-root user BEFORE installing browsers and the
+# model so everything lands in /home/user/.cache (accessible at runtime).
 RUN useradd -m -u 1000 user
 USER user
-ENV HOME=/home/user PATH=/home/user/.local/bin:$PATH
+ENV HOME=/home/user \
+    PATH=/home/user/.local/bin:$PATH \
+    PLAYWRIGHT_BROWSERS_PATH=/home/user/.cache/ms-playwright
 
-# Pre-download BAAI/bge-small-en-v1.5 (~130 MB) to avoid cold-start delay
+# Install Playwright Chromium as the non-root user so the binary is in
+# /home/user/.cache/ms-playwright, where the running process can find it.
+RUN python -m playwright install chromium
+
+# Pre-download BAAI/bge-small-en-v1.5 (~130 MB) to avoid cold-start delay.
 RUN python -c "\
 from sentence_transformers import SentenceTransformer; \
 SentenceTransformer('BAAI/bge-small-en-v1.5'); \
