@@ -1,4 +1,5 @@
 fastapi==0.115.6
+huggingface-hub==0.26.5
 uvicorn[standard]==0.32.1
 httpx==0.28.1
 beautifulsoup4==4.12.3
@@ -20,7 +21,7 @@ llama-index-core==0.11.23
 llama-index-vector-stores-qdrant==0.3.2
 llama-index-embeddings-huggingface==0.3.1
 llama-index-llms-groq==0.2.0
- 
+
 # Shared deps
 sentence-transformers==3.3.1
 tiktoken==0.8.0
