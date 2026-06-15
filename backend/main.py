@@ -9,6 +9,15 @@ from routers import ingest, chat, kb
 
 logger = logging.getLogger("rag_chatbot")
 
+@app.on_event("startup")
+async def startup():
+    try:
+        from qdrant_client import QdrantClient
+        client = QdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_api_key)
+        client.get_collections()
+        print("✅ Qdrant connected")
+    except Exception as e:
+        print(f"❌ Qdrant connection failed: {e}")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
