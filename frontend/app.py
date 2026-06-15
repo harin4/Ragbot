@@ -78,14 +78,14 @@ def api_delete(framework: str) -> None:
     requests.delete(f"{API_URL}/collections/{framework}", timeout=10)
 
 
-def stream_chat(question: str, framework: str):
+def stream_chat(question: str, framework: str, history: list[dict]):
     """
     Yields (token: str, sources: list | None) tuples.
     sources is None for every token event; it is a list on the final event.
     """
     with requests.post(
         f"{API_URL}/chat",
-        json={"question": question, "framework": framework},
+        json={"question": question, "framework": framework, "chat_history": history},
         stream=True,
         timeout=120,
     ) as resp:
@@ -260,8 +260,12 @@ if question := st.chat_input("Ask a question about your knowledge base…"):
         full_answer = ""
         sources: list = []
 
+        history_payload = [
+            {"role": m["role"], "content": m["content"]}
+            for m in st.session_state.messages[-10:]
+        ]
         try:
-            for token, src in stream_chat(question, framework):
+            for token, src in stream_chat(question, framework, history_payload):
                 if src is not None:
                     sources = src
                 else:

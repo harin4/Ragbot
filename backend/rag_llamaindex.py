@@ -193,22 +193,28 @@ def _retrieve_and_rerank(query: str) -> list[dict]:
 
 # ── Question rewriting ──────────────────────────────────────────────────────
 
-def _rewrite_query(question: str) -> str:
+def _rewrite_query(question: str, history: list[dict]) -> str:
     from groq import Groq
     client = Groq(api_key=cfg.groq_api_key)
+    history_text = ""
+    if history:
+        recent = history[-6:]
+        history_text = "\n".join(f"{m['role'].upper()}: {m['content']}" for m in recent)
+    system = (
+        "You are a search query optimizer. "
+        "Given the conversation history and the latest question, rewrite the question "
+        "into a concise, keyword-rich search query that resolves any vague references "
+        "(like 'the url', 'it', 'that page') using the conversation context. "
+        "Return ONLY the rewritten query, nothing else."
+    )
+    messages = [{"role": "system", "content": system}]
+    if history_text:
+        messages.append({"role": "user", "content": f"Conversation so far:\n{history_text}\n\nLatest question: {question}"})
+    else:
+        messages.append({"role": "user", "content": question})
     resp = client.chat.completions.create(
         model=cfg.llm_model,
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "You are a search query optimizer. "
-                    "Rewrite the user's question into a concise, keyword-rich search query. "
-                    "Return ONLY the rewritten query, nothing else."
-                ),
-            },
-            {"role": "user", "content": question},
-        ],
+        messages=messages,
         max_tokens=100,
         temperature=0.0,
     )
@@ -225,7 +231,7 @@ Context:
 {context}"""
 
 
-def chat_stream(question: str) -> tuple[Generator[str, None, None], list[dict]]:
+def chat_stream(question: str, history: list[dict] | None = None) -> tuple[Generator[str, None, None], list[dict]]:
     """
     1. Rewrite query
     2. Retrieve + rerank with LlamaIndex/Qdrant + Cohere
@@ -233,7 +239,7 @@ def chat_stream(question: str) -> tuple[Generator[str, None, None], list[dict]]:
 
     Returns (token_generator, sources_list).
     """
-    rewritten = _rewrite_query(question)
+    rewritten = _rewrite_query(question, history or [])
     sources = _retrieve_and_rerank(rewritten)
 
     context_text = "\n\n---\n\n".join(s["content"] for s in sources)

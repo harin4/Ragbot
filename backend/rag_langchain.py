@@ -147,26 +147,28 @@ def _retrieve_and_rerank(query: str) -> list[Document]:
 
 # ── Question rewriting ──────────────────────────────────────────────────────
 
-def _rewrite_query(question: str) -> str:
-    """
-    Use Groq (via LangChain's ChatOpenAI-compatible interface) to rephrase
-    the user question into a better search query.
-    """
+def _rewrite_query(question: str, history: list[dict]) -> str:
     from groq import Groq
     client = Groq(api_key=cfg.groq_api_key)
+    history_text = ""
+    if history:
+        recent = history[-6:]
+        history_text = "\n".join(f"{m['role'].upper()}: {m['content']}" for m in recent)
+    system = (
+        "You are a search query optimizer. "
+        "Given the conversation history and the latest question, rewrite the question "
+        "into a concise, keyword-rich search query that resolves any vague references "
+        "(like 'the url', 'it', 'that page') using the conversation context. "
+        "Return ONLY the rewritten query, nothing else."
+    )
+    messages = [{"role": "system", "content": system}]
+    if history_text:
+        messages.append({"role": "user", "content": f"Conversation so far:\n{history_text}\n\nLatest question: {question}"})
+    else:
+        messages.append({"role": "user", "content": question})
     resp = client.chat.completions.create(
         model=cfg.llm_model,
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "You are a search query optimizer. "
-                    "Rewrite the user's question into a concise, keyword-rich search query. "
-                    "Return ONLY the rewritten query, nothing else."
-                ),
-            },
-            {"role": "user", "content": question},
-        ],
+        messages=messages,
         max_tokens=100,
         temperature=0.0,
     )
@@ -190,17 +192,14 @@ Answer:""",
 )
 
 
-def chat_stream(question: str) -> tuple[AsyncIterator[str], list[dict]]:
+def chat_stream(question: str, history: list[dict] | None = None) -> tuple[AsyncIterator[str], list[dict]]:
     """
     Synchronous wrapper that:
-    1. Rewrites the question for better retrieval
+    1. Rewrites the question for better retrieval (using history to resolve vague refs)
     2. Retrieves + reranks context chunks
     3. Returns (token_generator, source_chunks_metadata)
-
-    We use Groq directly for streaming (LangChain streaming support for Groq
-    requires extra setup; this keeps it simple and easy to understand).
     """
-    rewritten = _rewrite_query(question)
+    rewritten = _rewrite_query(question, history or [])
     docs = _retrieve_and_rerank(rewritten)
 
     sources = [

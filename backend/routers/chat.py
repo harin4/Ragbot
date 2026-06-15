@@ -28,9 +28,9 @@ async def chat(req: ChatRequest) -> StreamingResponse:
     def _generate():
         try:
             if framework == "llamaindex":
-                gen, sources = rag_llamaindex.chat_stream(req.question)
+                gen, sources = rag_llamaindex.chat_stream(req.question, req.chat_history)
             elif framework == "langchain":
-                gen, sources = rag_langchain.chat_stream(req.question)
+                gen, sources = rag_langchain.chat_stream(req.question, req.chat_history)
             else:
                 yield f"data: {json.dumps({'type': 'error', 'data': 'framework must be llamaindex or langchain'})}\n\n"
                 return
