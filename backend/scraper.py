@@ -59,6 +59,7 @@ async def scrape_url(
         exe = os.environ.get("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH")
         browser = await p.chromium.launch(
             headless=True,
+            args=["--no-sandbox", "--disable-dev-shm-usage"],
             **({"executable_path": exe} if exe else {}),
         )
         try:

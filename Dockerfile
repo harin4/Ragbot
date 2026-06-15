@@ -2,28 +2,30 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system Chromium — apt handles all required X11/graphics libs
-# automatically, and avoids Playwright's CDN binary download which fails
-# in HF Space build runners.
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    chromium \
-    && rm -rf /var/lib/apt/lists/*
+# Install the playwright Python package alone first so we can run
+# 'playwright install --with-deps' before the long pip install that
+# fills up HF's 50 k-char build log and hides errors.
+RUN pip install --no-cache-dir playwright==1.49.0
 
-# Prevent playwright from attempting a browser download during pip install.
-ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+# Download Playwright's headless Chromium + auto-install its system libs.
+# Runs early so its output appears before pip install truncates the log.
+# Root-level install into /ms-playwright which is world-readable.
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+RUN python -m playwright install --with-deps chromium \
+    && chmod -R 755 /ms-playwright
 
+# Install the rest of the application requirements.
 COPY backend/requirements.txt .
 RUN pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
 
-# Create the HF-required non-root user
+# Create the HF-required non-root user (UID 1000).
 RUN useradd -m -u 1000 user
 USER user
 ENV HOME=/home/user \
     PATH=/home/user/.local/bin:$PATH \
-    PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 COPY --chown=user:user backend/ .
 
 EXPOSE 7860
-
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "7860"]
