@@ -4,6 +4,7 @@ Returns a list of plain-text chunks plus page metadata.
 """
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field
 
@@ -55,7 +56,11 @@ async def scrape_url(
 ) -> ScrapedPage:
     """Fetch *url* with a real browser, strip boilerplate, return a ScrapedPage with text chunks."""
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
+        exe = os.environ.get("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH")
+        browser = await p.chromium.launch(
+            headless=True,
+            **({"executable_path": exe} if exe else {}),
+        )
         try:
             page = await browser.new_page()
             await page.goto(url, wait_until="networkidle", timeout=int(timeout * 1000))

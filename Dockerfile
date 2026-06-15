@@ -2,41 +2,25 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# System deps for Playwright Chromium (Debian Trixie t64 packages)
+# Install system Chromium — apt handles all required X11/graphics libs
+# automatically, and avoids Playwright's CDN binary download which fails
+# in HF Space build runners.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc g++ \
-    libnss3 \
-    libatk1.0-0t64 \
-    libatk-bridge2.0-0t64 \
-    libcups2t64 \
-    libdrm2 \
-    libxkbcommon0 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxfixes3 \
-    libxrandr2 \
-    libgbm1 \
-    libasound2t64 \
-    libpango-1.0-0 \
-    libcairo2 \
-    libatspi2.0-0t64 \
+    chromium \
     && rm -rf /var/lib/apt/lists/*
+
+# Prevent playwright from attempting a browser download during pip install.
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 
 COPY backend/requirements.txt .
 RUN pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
-
-# Install Chromium as root into a world-readable path so the non-root
-# user can find it at runtime without PLAYWRIGHT_BROWSERS_PATH games.
-ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
-RUN python -m playwright install chromium \
-    && chmod -R 755 /ms-playwright
 
 # Create the HF-required non-root user
 RUN useradd -m -u 1000 user
 USER user
 ENV HOME=/home/user \
     PATH=/home/user/.local/bin:$PATH \
-    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+    PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 
 COPY --chown=user:user backend/ .
 
