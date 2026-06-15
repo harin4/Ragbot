@@ -223,12 +223,16 @@ def _rewrite_query(question: str, history: list[dict]) -> str:
 
 # ── Chat (streaming) ────────────────────────────────────────────────────────
 
-_SYSTEM_PROMPT = """You are a helpful assistant. Answer using ONLY the context below. Do NOT use outside knowledge.
-If the answer is in the context, answer clearly and cite the relevant part.
-If the answer is NOT in the context, respond with: "This topic isn't covered in the ingested content. Try ingesting a URL about this topic first."
+_SYSTEM_INSTRUCTION = (
+    "You are a strict knowledge-base assistant. "
+    "You MUST answer using ONLY the context provided. "
+    "FORBIDDEN: using any outside knowledge, training data, or general information. "
+    "If the context does not contain enough information to answer, reply ONLY with: "
+    "'This topic isn't covered in the ingested content. Try ingesting a relevant URL first.' "
+    "Do not add caveats, extra explanations, or general knowledge under any circumstances."
+)
 
-Context:
-{context}"""
+_CONTEXT_TEMPLATE = "Context:\n{context}"
 
 
 def chat_stream(question: str, history: list[dict] | None = None) -> tuple[Generator[str, None, None], list[dict]]:
@@ -243,7 +247,7 @@ def chat_stream(question: str, history: list[dict] | None = None) -> tuple[Gener
     sources = _retrieve_and_rerank(rewritten)
 
     context_text = "\n\n---\n\n".join(s["content"] for s in sources)
-    full_prompt = _SYSTEM_PROMPT.format(context=context_text)
+    context_prompt = _CONTEXT_TEMPLATE.format(context=context_text)
 
     from groq import Groq
     client = Groq(api_key=cfg.groq_api_key)
@@ -252,11 +256,11 @@ def chat_stream(question: str, history: list[dict] | None = None) -> tuple[Gener
         stream = client.chat.completions.create(
             model=cfg.llm_model,
             messages=[
-                {"role": "system", "content": full_prompt},
-                {"role": "user", "content": question},
+                {"role": "system", "content": _SYSTEM_INSTRUCTION},
+                {"role": "user", "content": f"{context_prompt}\n\nQuestion: {question}"},
             ],
             max_tokens=1024,
-            temperature=0.3,
+            temperature=0.0,
             stream=True,
         )
         for chunk in stream:

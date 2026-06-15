@@ -177,18 +177,18 @@ def _rewrite_query(question: str, history: list[dict]) -> str:
 
 # ── Chat (streaming) ────────────────────────────────────────────────────────
 
+_SYSTEM_INSTRUCTION = (
+    "You are a strict knowledge-base assistant. "
+    "You MUST answer using ONLY the context provided. "
+    "FORBIDDEN: using any outside knowledge, training data, or general information. "
+    "If the context does not contain enough information to answer, reply ONLY with: "
+    "'This topic isn't covered in the ingested content. Try ingesting a relevant URL first.' "
+    "Do not add caveats, extra explanations, or general knowledge under any circumstances."
+)
+
 _RAG_PROMPT = PromptTemplate(
     input_variables=["context", "question"],
-    template="""You are a helpful assistant. Answer using ONLY the context below. Do NOT use outside knowledge.
-If the answer is in the context, answer clearly and cite the relevant part.
-If the answer is NOT in the context, respond with: "This topic isn't covered in the ingested content. Try ingesting a URL about this topic first."
-
-Context:
-{context}
-
-Question: {question}
-
-Answer:""",
+    template="Context:\n{context}\n\nQuestion: {question}",
 )
 
 
@@ -216,9 +216,12 @@ def chat_stream(question: str, history: list[dict] | None = None) -> tuple[Async
     def _generator():
         stream = client.chat.completions.create(
             model=cfg.llm_model,
-            messages=[{"role": "user", "content": prompt}],
+            messages=[
+                {"role": "system", "content": _SYSTEM_INSTRUCTION},
+                {"role": "user", "content": prompt},
+            ],
             max_tokens=1024,
-            temperature=0.3,
+            temperature=0.0,
             stream=True,
         )
         for chunk in stream:
