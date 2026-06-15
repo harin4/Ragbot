@@ -1,0 +1,58 @@
+services:
+  # ── Backend: FastAPI + RAG pipeline ──────────────────────────────────────
+  - type: web
+    name: rag-chatbot-backend
+    runtime: docker
+    plan: starter            # 1GB RAM — needed for torch/sentence-transformers (BGE model)
+    region: oregon            # change if you want a region closer to you
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false
+      - key: QDRANT_URL
+        sync: false
+      - key: QDRANT_API_KEY
+        sync: false
+      - key: COHERE_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_EMBEDDING_MODEL
+        value: text-embedding-3-small
+      - key: GROQ_MODEL
+        value: llama-3.3-70b-versatile
+      - key: COHERE_RERANK_MODEL
+        value: rerank-v3.5
+      - key: QDRANT_COLLECTION
+        value: knowledge_base
+      - key: REQUEST_TIMEOUT
+        value: "30"
+      - key: MAX_CHUNK_SIZE
+        value: "500"
+      - key: CHUNK_OVERLAP
+        value: "50"
+      - key: TOP_K_RETRIEVAL
+        value: "10"
+      - key: TOP_K_RERANK
+        value: "4"
+      - key: TEMPERATURE
+        value: "0.3"
+      - key: MAX_TOKENS
+        value: "2048"
+
+  # ── Frontend: Streamlit UI ────────────────────────────────────────────────
+  - type: web
+    name: rag-chatbot-frontend
+    runtime: docker
+    plan: free
+    region: oregon
+    rootDir: frontend
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: API_URL
+        fromService:
+          type: web
+          name: rag-chatbot-backend
+          envVarKey: RENDER_EXTERNAL_URL
