@@ -223,9 +223,9 @@ def _rewrite_query(question: str, history: list[dict]) -> str:
 
 # ── Chat (streaming) ────────────────────────────────────────────────────────
 
-_SYSTEM_PROMPT = """You are a helpful assistant. Use the context below to answer the question.
-If the context contains relevant information, prioritize it and cite it.
-If the context does not cover the question, answer using your general knowledge and mention that the answer is not from the knowledge base.
+_SYSTEM_PROMPT = """You are a helpful assistant. Answer using ONLY the context below. Do NOT use outside knowledge.
+If the answer is in the context, answer clearly and cite the relevant part.
+If the answer is NOT in the context, respond with: "This topic isn't covered in the ingested content. Try ingesting a URL about this topic first."
 
 Context:
 {context}"""
