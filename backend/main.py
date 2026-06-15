@@ -9,6 +9,10 @@ from routers import ingest, chat, kb
 
 logger = logging.getLogger("rag_chatbot")
 
+@app.get("/")
+def root():
+    return {"status": "Ragbot API is running!", "docs": "/docs"}
+
 @app.on_event("startup")
 async def startup():
     try:
